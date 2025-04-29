@@ -8,19 +8,34 @@ interface RequestOptions {
   method: 'GET' | 'POST';
   path:   string;
   body?:  unknown;
+  useTransferKey?: boolean; // Flag to explicitly use the transfer API key
+  onBehalfOf?: string; // Customer ID to use for the on-behalf-of header
 }
 
-async function request<T>({ method, path, body }: RequestOptions): Promise<T> {
+async function request<T>({ method, path, body, useTransferKey, onBehalfOf }: RequestOptions): Promise<T> {
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
   const url = `${BASE_URL}/${cleanPath}`;
+
+  // Create headers with required fields
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${API_KEY}`,
+    'accept': 'application/json'
+  };
+  
+  // Add transfer API key header only for specific operations like executing payouts
+  if (useTransferKey && TRANSFER_KEY) {
+    headers['transfer-api-key'] = TRANSFER_KEY;
+  }
+  
+  // Add on-behalf-of header if a customer ID is provided
+  if (onBehalfOf) {
+    headers['on-behalf-of'] = onBehalfOf;
+  }
   
   const res = await fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-      'transfer-api-key': TRANSFER_KEY,
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   
@@ -36,29 +51,44 @@ async function request<T>({ method, path, body }: RequestOptions): Promise<T> {
 
 
 // ── Accounts ───────────────────────────────────────────────────────────────────
-export interface AccountDetails {
-  walletDetails: walletDetails;
-  balances: balances[];
+export interface DepositAccount {
+  id: string;
+  accountId: string;
+  status: string;
+  currency: string;
+  bankBeneficiaryName: string;
+  bankBeneficiaryAddress: string;
+  bankName: string;
+  bankAddress: string;
+  bankRoutingNumber: string;
+  bankAccountNumber: string;
+  paymentRails: string[];
 }
 
-export interface walletDetails {
-  blockchain: string;
-  walletAddress: string;
+export interface AccountDetails {
+  balances: Balance[];
+  walletDetails: WalletDetails;
+  depositAccount?: DepositAccount;
 }
-export interface balances {
+
+export interface WalletDetails {
+  walletAddress: string;
+  blockchain: string;
+}
+
+export interface Balance {
   tokenAmount: number;
   tokenSymbol: string;
 }
 
 export interface Account {
   id: string;
-  name: string;
   createdAt: string;
+  updatedAt: string;
+  name: string;
   isApiEnabled: boolean;
   status: string;
-  customer_id: string;
-  balance: number;
-  currency: string;
+  accountDetails: AccountDetails;
 }
 
 /**
@@ -70,6 +100,13 @@ export function createAccount(input: { name: string }): Promise<Account> {
     path: '/api/accounts',
     body: input,
   });
+}
+
+/**
+ * Get all accounts.
+ */
+export function getAccounts(): Promise<Account[]> {
+  return request<Account[]>({ method: 'GET', path: '/api/accounts' });
 }
 
 // ── Payouts ────────────────────────────────────────────────────────────────────
@@ -85,7 +122,7 @@ export interface payoutDetails {
   bankName?: string;
   bankAccountOwner?: string;
   fiatAndRailDetails?: fiatAndRailDetails;
-  blockchainPayoutDetails?: blockchainPayoutDetails; // Keep this for backward compatibility
+  blockchainPayoutDetails?: blockchainPayoutDetails; 
 }
 
 export interface fiatAndRailDetails {
@@ -127,7 +164,6 @@ export interface recipientInfo {
   businessRecipientInfo?: businessRecipientInfo | null;
 }
 
-// Keep these for backward compatibility
 export interface individualRecipientInfo {
   type: string;
   firstName: string;
@@ -143,7 +179,6 @@ export interface individualRecipientInfo {
   };
 }
 
-// Keep these for backward compatibility
 export interface businessRecipientInfo {
   type: string;
   name: string;
@@ -158,14 +193,39 @@ export interface businessRecipientInfo {
 }
 
 export interface payouts {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
   amount: amount;
-  payoutDetails: payoutDetails;
-  recipientInfo: recipientInfo;
+  recipientInfo?: recipientInfo;
+  payoutDetails?: payoutDetails;
+  details?: {
+    type: string;
+    fiatAndRailCode?: string;
+    fiatAmount?: {
+      fiatAmount: number;
+      fiatCurrencyCode: string;
+    };
+    transactionFee?: {
+      tokenSymbol: string;
+      tokenAmount: number;
+    };
+    exchangeRate?: number;
+    exchangeFeePercentage?: number;
+    feeTotal?: {
+      tokenSymbol: string;
+      tokenAmount: number;
+    };
+    fiatPayoutStatus?: {
+      type: string;
+    };
+  };
 }
 
 export interface PayoutRequest {
   id: string;
   createdAt: string;
+  updatedAt: string;
   sourceAccountId: string;
   memo: string;
   amount: number;
@@ -175,13 +235,53 @@ export interface PayoutRequest {
 }
 
 /**
+ * Payload for creating a payout
+ */
+export interface PayoutRequestPayload {
+  sourceAccountId: string;
+  memo?: string;
+  payouts: Array<{
+    amount: {
+      tokenAmount: number;
+      tokenSymbol: string;
+    };
+    payoutDetails: {
+      type: string;
+      bankName?: string;
+      bankAccountOwner?: string;
+      fiatAndRailDetails?: {
+        type: string;
+        symbol: string;
+        accountType: string;
+        phoneNumber: string;
+        bankAccountNumber: string;
+        documentNumber: string;
+        documentType: string;
+      };
+      walletAddress?: string;
+      blockchain?: string;
+    };
+    recipientInfo: {
+      type: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      dateOfBirth?: string;
+      physicalAddress?: {
+        address1: string;
+        country: string;
+        state: string;
+        city: string;
+        zip: string;
+      };
+    };
+  }>;
+}
+
+/**
  * Create a Payout Request.
  */
-export function createPayoutRequest(input: {
-  sourceAccountId: string;
-  payouts: payouts[];
-  memo?:      string;
-}): Promise<PayoutRequest> {
+export function createPayoutRequest(input: PayoutRequestPayload): Promise<PayoutRequest> {
   return request<PayoutRequest>({ method: 'POST', path: '/api/payouts/payout', body: input });
 }
 
@@ -203,10 +303,15 @@ export function getPayoutRequest(id: string): Promise<PayoutRequest> {
 }
 
 /**
- * Execute a Payout Request.
+ * Execute a Payout Request that's in AWAITING_EXECUTION state.
  */
-export function executePayoutRequest(id: string): Promise<PayoutRequest> {
-  return request<PayoutRequest>({ method: 'POST', path: `/api/payouts/payout/${id}/execute` });
+export function executePayoutRequest(id: string, accountId: string): Promise<PayoutRequest> {
+  return request<PayoutRequest>({
+    method: 'POST', 
+    path: `/api/payouts/payout/${id}/execute`,
+    useTransferKey: true, // Explicitly use the transfer API key for payout execution
+    onBehalfOf: accountId // Use the account ID for the on-behalf-of header
+  });
 }
 
 /**

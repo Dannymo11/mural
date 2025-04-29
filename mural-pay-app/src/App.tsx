@@ -1,251 +1,318 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
-import { 
-  createAccount, Account, 
-  PayoutRequest, createPayoutRequest, executePayoutRequest
-} from './api/muralPay.ts';
-
+import { useAccounts, usePayouts, useFormInitialization } from './hooks';
 // Define the application views
-type AppView = 'CREATE_ACCOUNT' | 'WELCOME' | 'CREATE_BLOCKCHAIN_PAYOUT' | 'VIEW_PAYOUT';
+type AppView = 'CREATE_ACCOUNT' | 'WELCOME' | 'CREATE_BLOCKCHAIN_PAYOUT' | 'VIEW_PAYOUT' | 'CREATE_FIAT_PAYOUT_COP';
+
+// Constants for view types
+const ViewTypes = {
+  CREATE_ACCOUNT: 'CREATE_ACCOUNT',
+  WELCOME: 'WELCOME',
+  CREATE_BLOCKCHAIN_PAYOUT: 'CREATE_BLOCKCHAIN_PAYOUT',
+  VIEW_PAYOUT: 'VIEW_PAYOUT',
+  CREATE_FIAT_PAYOUT_COP: 'CREATE_FIAT_PAYOUT_COP'
+} as const;
+
+// App view type is imported from ViewTypes.ts
 
 function App() {
   // View state management
-  const [currentView, setCurrentView] = useState<AppView>('CREATE_ACCOUNT');
+  const [currentView, setCurrentView] = useState<AppView>(ViewTypes.CREATE_BLOCKCHAIN_PAYOUT);
   
-  // Account state
-  const [acctName, setAcctName] = useState('');
-  const [acctResponse, setAcctResponse] = useState<Account | null>(null);
-  const [acctError, setAcctError] = useState<string | null>(null);
+  // Use custom hooks
+  const { 
+    accounts, 
+    selectedAccount, 
+    selectedAccountId, 
+    loading: loadingAccounts, 
+    error: acctError, 
+    fetchAccounts, 
+    createNewAccount, 
+    selectAccount,
+    setSelectedAccountId 
+  } = useAccounts();
   
-  // Application state for creating payouts
-  const [payoutAmount, setPayoutAmount] = useState('');
-  const [payoutCurrency, setPayoutCurrency] = useState('USDC');
-  const [recipientAddress, setRecipientAddress] = useState('');
-  const [payoutMemo, setPayoutMemo] = useState('');
-  const [blockchain, setBlockchain] = useState('ETHEREUM');
-  const [recipientType, setRecipientType] = useState<'individual' | 'business'>('individual');
-  const [payoutResponse, setPayoutResponse] = useState<PayoutRequest | null>(null);
-  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const {
+    // Payout state managed by the custom hook
+    payoutResponse,
+    payoutAmount,
+    payoutCurrency,
+    payoutMemo,
+    recipientType,
+    executionStatus,
+    error: payoutError,
+    // We don't use setPayoutResponse directly as it's handled by createPayout
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    setPayoutResponse,
+    setPayoutAmount,
+    setPayoutCurrency,
+    setPayoutMemo,
+    setRecipientType,
+    resetForm,
+    createPayout,
+    executePayout
+  } = usePayouts();
+  
+  // Use form initialization hook
+  const { extractFormData } = useFormInitialization(currentView);
+
+  // Fetch accounts when component mounts or when navigating to relevant screens
+  useEffect(() => {
+    if (currentView === ViewTypes.WELCOME || currentView === ViewTypes.CREATE_BLOCKCHAIN_PAYOUT) {
+      fetchAccounts();
+    }
+  }, [currentView, fetchAccounts]);
   
   // Handle account creation submit
-  const handleCreateAcct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAcctError(null);
-    try {
-      const acct = await createAccount({ 
-        name: acctName
-      });
-      setAcctResponse(acct);
-      // Transition to welcome view on success
-      setCurrentView('WELCOME');
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setAcctError(err.message);
-      } else {
-        setAcctError(String(err));
-      }
-    }
-  }
-  
-  // Handle payout request creation
-  const handleCreatePayout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPayoutError(null);
-    
-    if (!acctResponse) {
-      setPayoutError('No account available to create payout');
+  const handleCreateAcct = async () => {
+    const nameInput = document.getElementById('acctName') as HTMLInputElement;
+    if (!nameInput || !nameInput.value.trim()) {
+      console.error('Please enter an account name');
       return;
     }
     
     try {
-      const amount = parseFloat(payoutAmount);
-      if (isNaN(amount) || amount <= 0) {
-        setPayoutError('Please enter a valid positive amount');
-        return;
+      await createNewAccount(nameInput.value.trim());
+      nameInput.value = ''; // Clear the input field after successful creation
+      await fetchAccounts();
+      setSelectedAccountId(null); // Reset selected account
+      // Navigate to welcome view after account creation
+      setCurrentView(ViewTypes.WELCOME);
+    } catch (err) {
+      console.error('Error creating account:', err);
+    }
+  }
+  
+  // Handle creating a new payout
+  const handleCreatePayout = async () => {
+    if (!selectedAccountId) {
+      console.error('No account selected');
+      return;
+    }
+    
+    try {
+      // Get all form data using our utility function
+      const formData = extractFormData();
+      
+      // Create the payout using our custom hook - this will set payoutResponse internally
+      // createPayout function takes in the selected account ID and the form data, 
+      // and returns a promise that resolves to the payout response if successful
+      const payout = await createPayout(selectedAccountId, formData);
+      
+      // If successful, navigate to the payout view
+      if (payout) {
+        navigateTo(ViewTypes.VIEW_PAYOUT);
       }
-      
-      // Get form values
-      const firstName = (document.getElementById('firstName') as HTMLInputElement)?.value || '';
-      const lastName = (document.getElementById('lastName') as HTMLInputElement)?.value || '';
-      const emailValue = (document.getElementById('individualEmail') as HTMLInputElement)?.value || 
-                      (document.getElementById('businessEmail') as HTMLInputElement)?.value || '';
-      const dateOfBirthValue = (document.getElementById('dateOfBirth') as HTMLInputElement)?.value || '';
-      const businessNameValue = (document.getElementById('businessName') as HTMLInputElement)?.value || '';
-      
-      // Get address form values - these are the same IDs for both individual and business
-      const street = (document.getElementById('street') as HTMLInputElement)?.value || '';
-      const city = (document.getElementById('city') as HTMLInputElement)?.value || '';
-      const state = (document.getElementById('state') as HTMLInputElement)?.value || '';
-      const postalCode = (document.getElementById('postalCode') as HTMLInputElement)?.value || '';
-      const country = (document.getElementById('country') as HTMLInputElement)?.value || '';
-      
-      // Build payload according to the API example format
-      const payloadData = {
-        sourceAccountId: acctResponse.id,
-        payouts: [
-          {
-            amount: {
-              tokenAmount: amount,
-              tokenSymbol: payoutCurrency
-            },
-            payoutDetails: {
-              type: blockchain.toLowerCase() === 'ethereum' ? 'blockchain' : 'blockchain',
-              ...(blockchain.toLowerCase() === 'ethereum' ? {
-                // Blockchain specific details for Ethereum
-                walletAddress: recipientAddress,
-                blockchain: blockchain.toLowerCase()
-              } : {
-                // Other blockchain details
-                walletAddress: recipientAddress,
-                blockchain: blockchain.toLowerCase()
-              })
-            },
-            recipientInfo: recipientType === 'individual' 
-              ? {
-                  type: 'individual',
-                  firstName: firstName,
-                  lastName: lastName,
-                  email: emailValue,
-                  dateOfBirth: dateOfBirthValue,
-                  physicalAddress: {
-                    address1: street,
-                    country: country,
-                    state: state,
-                    city: city,
-                    zip: postalCode
-                  }
-                }
-              : {
-                  type: 'business',
-                  firstName: businessNameValue, // Using businessName as firstName for business
-                  lastName: '',
-                  email: emailValue,
-                  physicalAddress: {
-                    address1: street,
-                    country: country,
-                    state: state,
-                    city: city,
-                    zip: postalCode
-                  }
-                }
-          }
-        ],
-        memo: payoutMemo || undefined
-      };
-      
-      // Log the payload for debugging
-      console.log('Payout request payload:', JSON.stringify(payloadData, null, 2));
-      
-      const payout = await createPayoutRequest(payloadData);
-      
-      // Store the response and move to the payout view
-      setPayoutResponse(payout);
-      navigateTo('VIEW_PAYOUT');
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setPayoutError(err.message);
-      } else {
-        setPayoutError(String(err));
-      }
+    } catch (err) {
+      // Error is handled by the hook
+      console.error('Error creating payout:', err);
     }
   };
   
   // Handle payout execution
   const handleExecutePayout = async () => {
-    if (!payoutResponse) return;
-    
-    setPayoutError(null);
     try {
-      const executedPayout = await executePayoutRequest(payoutResponse.id);
-      setPayoutResponse(executedPayout);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setPayoutError(err.message);
-      } else {
-        setPayoutError(String(err));
-      }
+      // Simply use our custom hook to execute the payout
+      await executePayout();
+    } catch (err) {
+      // Error is handled by the hook
+      console.error('Error executing payout:', err);
     }
   }
   
   // Reset forms and navigate between views
   const navigateTo = (view: AppView) => {
-    if (view === 'CREATE_ACCOUNT') {
-      setAcctError(null);
-    } else if (view === 'CREATE_BLOCKCHAIN_PAYOUT') {
-      setPayoutError(null);
-      // Reset payout form
-      setPayoutAmount('');
-      setPayoutCurrency('USDC');
-      setRecipientAddress('');
-      setPayoutMemo('');
-      setRecipientType('individual');
+    // Reset form state if navigating away from payout views
+    if (view !== ViewTypes.VIEW_PAYOUT && view !== ViewTypes.CREATE_BLOCKCHAIN_PAYOUT) {
+      resetForm();
     }
     setCurrentView(view);
   };
-
-  // Render the account creation view
-  const renderAccountCreation = () => (
-    <section className="form-container">
-      <h2>Create Mural Pay Account</h2>
-      <form onSubmit={handleCreateAcct}>
-        <div className="form-group">
-          <label htmlFor="acctName">Account Name</label>
-          <input
-            id="acctName"
-            type="text"
-            placeholder="Enter account name"
-            value={acctName}
-            onChange={e => setAcctName(e.target.value)}
-            required
-            className="form-input"
-          />
-        </div>
-        <button type="submit" className="submit-btn">Create Account</button>
-      </form>
-      {acctError && <p className="error-message">Error: {acctError}</p>}
-    </section>
-  );
   
   // Render the welcome screen after account creation
   const renderWelcome = () => (
     <section className="welcome-container">
       <h2>Welcome to Mural Pay!</h2>
-      
-      {acctResponse && (
-        <div className="account-details">
-          <p><strong>Account ID:</strong> {acctResponse.id}</p>
-          <p><strong>Name:</strong> {acctResponse.name}</p>
-          <p><strong>Balance:</strong> {acctResponse.balance} {acctResponse.currency}</p>
-          <p><strong>Status:</strong> {acctResponse.status}</p>
-          <p><strong>Created At:</strong> {new Date(acctResponse.createdAt).toLocaleString()}</p>
+
+      {loadingAccounts ? (
+        <p>Loading accounts...</p>
+      ) : accounts.length > 0 ? (
+        <>
+          <div className="account-selection">
+            <h3>Select Account</h3>
+            <select 
+              value={selectedAccountId || ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setSelectedAccountId(e.target.value);
+                  selectAccount(e.target.value);
+                }
+              }}
+              className="form-input"
+            >
+              {accounts.map(account => (
+                <option key={account.id} value={account.id}>
+                  {account.name} - {account.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedAccount && (
+            <div className="account-details">
+              <h3>Account Details</h3>
+              <p><strong>Account ID:</strong> {selectedAccount.id}</p>
+              <p><strong>Name:</strong> {selectedAccount.name}</p>
+              <p><strong>Status:</strong> {selectedAccount.status}</p>
+              <p><strong>Created At:</strong> {new Date(selectedAccount.createdAt).toLocaleString()}</p>
+              <p><strong>API Enabled:</strong> {selectedAccount.isApiEnabled ? 'Yes' : 'No'}</p>
+              
+              {selectedAccount.accountDetails?.balances && selectedAccount.accountDetails.balances.length > 0 && (
+                <div className="balance-details">
+                  <h4>Balances</h4>
+                  {selectedAccount.accountDetails.balances.map((balance: any, idx: number) => (
+                    <p key={idx}><strong>{balance.tokenSymbol}:</strong> {balance.tokenAmount}</p>
+                  ))}
+                </div>
+              )}
+              
+              {selectedAccount.accountDetails?.walletDetails && (
+                <div className="wallet-details">
+                  <h4>Wallet Details</h4>
+                  <p><strong>Address:</strong> {selectedAccount.accountDetails.walletDetails.walletAddress}</p>
+                  <p><strong>Blockchain:</strong> {selectedAccount.accountDetails.walletDetails.blockchain}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="no-accounts">
+          <p>No accounts found. Create a new account to get started.</p>
+          <button onClick={() => navigateTo(ViewTypes.CREATE_ACCOUNT)} className="submit-btn">
+            Create Account
+          </button>
         </div>
       )}
       
-      <div className="welcome-actions">
-        <h3>Create a New Payment</h3>
-        <p>Send payments securely on the blockchain</p>
-        
-        <div className="payment-options">
-          <button 
-            onClick={() => navigateTo('CREATE_BLOCKCHAIN_PAYOUT')}
-            className="primary-btn"
-          >
-            <span className="payment-icon crypto">₿</span>
-            Create Blockchain Payment
-          </button>
+      {acctError && <p className="error-message">Error: {acctError}</p>}
+      
+      {accounts.length > 0 && (
+        <div className="welcome-actions">
+          <h3>Create a New Payment</h3>
+          <p>Send payments securely on the blockchain</p>
+          
+          <div className="payment-options">
+            <button 
+              onClick={() => navigateTo(ViewTypes.CREATE_BLOCKCHAIN_PAYOUT)}
+              className="primary-btn"
+              disabled={!selectedAccountId}
+            >
+              Create New Payment
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
   
+  // Note: Default values for the Colombian fiat payout are now managed by useFormInitialization hook
+
+  useEffect(() => {
+    // Only initialize defaults when switching to the payout creation view
+    if (currentView === ViewTypes.CREATE_FIAT_PAYOUT_COP) {
+      // Form values are now initialized by the useFormInitialization hook
+      
+      // Set default values for payout amount and memo
+      setPayoutAmount('10');
+      setPayoutMemo('Test COP payout');
+    }
+  }, [currentView, setPayoutAmount, setPayoutMemo]);
+
   // Render the blockchain payout creation form
   const renderBlockchainPayoutForm = () => {
+    
     return (
       <section className="form-container">
-        <h2>Create Blockchain Payout</h2>
-        <p className="account-info">Account: {acctResponse?.name} ({acctResponse?.id})</p>
+        <h2>Cross-Border Payments!</h2>
         
-        <form onSubmit={handleCreatePayout}>
+        {/* Account Management Section */}
+        <div className="account-management-section">
+          <h3 className="form-section-title">Account Management</h3>
+          <div className="account-creation">
+            <h4>Create a New Account</h4>
+            <div className="mini-form">
+              <div className="form-group">
+                <label htmlFor="acctName">Account Name</label>
+                <input
+                  id="acctName"
+                  type="text"
+                  placeholder="Enter account name"
+                  className="form-input"
+                />
+              </div>
+              <button 
+                type="button" 
+                onClick={handleCreateAcct} 
+                className="secondary-btn"
+              >
+                Create Account
+              </button>
+            </div>
+            {acctError && <p className="error-message">Error: {acctError}</p>}
+          </div>
+          {loadingAccounts ? (
+            <p>Loading accounts...</p>
+          ) : accounts.length > 0 ? (
+            <div className="existing-accounts">
+              <label htmlFor="accountSelect">Select an account:</label>
+              <select 
+                id="account-select"
+                value={selectedAccountId || ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setSelectedAccountId(e.target.value);
+                    selectAccount(e.target.value);
+                  }
+                }}
+                className="form-input"
+              >
+                <option value="">-- Select Account --</option>
+                {accounts.map(account => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} - {account.id}
+                  </option>
+                ))}
+              </select>
+              
+              {selectedAccountId && selectedAccount && (
+                <div className="selected-account-details">
+                  <p><strong>Selected Account:</strong> {selectedAccount.name}</p>
+                  <p><strong>ID:</strong> {selectedAccount.id}</p>
+                  {selectedAccount.accountDetails?.balances && selectedAccount.accountDetails.balances.length > 0 ? (
+                    <p>
+                      <strong>Balance:</strong> 
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {selectedAccount.accountDetails.balances.map((b: any, i: number) => (
+                        <span key={i}>{b.tokenAmount} {b.tokenSymbol}{i < selectedAccount.accountDetails.balances.length - 1 ? ', ' : ''}</span>
+                      ))}
+                    </p>
+                  ) : (
+                    <p>No balances available</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : null}
+          
+          
+        </div>
+        
+        <hr className="section-divider" />
+        
+        {/* Payout Form - Only show if an account is selected */}
+        {selectedAccountId ? (
+          <form onSubmit={handleCreatePayout}>
           {/* Payment Details Section */}
           <h3 className="form-section-title">Payment Details</h3>
           <div className="form-group">
@@ -254,7 +321,7 @@ function App() {
               id="payoutAmount"
               type="number"
               step="0.001"
-              placeholder="Enter amount"
+              placeholder="100"
               value={payoutAmount}
               onChange={e => setPayoutAmount(e.target.value)}
               required
@@ -271,40 +338,102 @@ function App() {
               className="form-select"
             >
               <option value="USDC">USD Coin (USDC)</option>
-              <option value="ETH">Ethereum (ETH)</option>
-              <option value="USDT">Tether (USDT)</option>
-              <option value="DAI">Dai (DAI)</option>
             </select>
           </div>
           
+          <h3 className="form-section-title">Colombian Fiat Payout Details</h3>
+          
+          <div className="form-row">
+            <div className="form-group form-group-half">
+              <label htmlFor="bankName">Bank Name</label>
+              <input
+                id="bankName"
+                type="text"
+                placeholder="Enter bank name"
+                defaultValue="Bancamia S.A."
+                className="form-input"
+                required
+              />
+            </div>
+            <div className="form-group form-group-half">
+              <label htmlFor="bankAccountOwner">Bank Account Owner</label>
+              <input
+                id="bankAccountOwner"
+                type="text"
+                placeholder="Enter account owner name"
+                defaultValue="test"
+                className="form-input"
+                required
+              />
+            </div>
+          </div>
+          
+          <div className="form-row">
+            <div className="form-group form-group-half">
+              <label htmlFor="accountType">Account Type</label>
+              <select
+                id="accountType"
+                defaultValue="CHECKING"
+                className="form-select"
+                required
+              >
+                <option value="CHECKING">Checking</option>
+                <option value="SAVINGS">Savings</option>
+              </select>
+            </div>
+            <div className="form-group form-group-half">
+              <label htmlFor="phoneNumber">Phone Number</label>
+              <input
+                id="phoneNumber"
+                type="tel"
+                placeholder="+57 601 555 5555"
+                defaultValue="+57 601 555 5555"
+                className="form-input"
+                required
+              />
+            </div>
+          </div>
+          
+          <div className="form-row">
+            <div className="form-group form-group-half">
+              <label htmlFor="bankAccountNumber">Bank Account Number</label>
+              <input
+                id="bankAccountNumber"
+                type="text"
+                placeholder="Enter bank account number"
+                defaultValue="1234567890123456"
+                className="form-input"
+                required
+              />
+            </div>
+            <div className="form-group form-group-half">
+              <label htmlFor="documentNumber">Document Number</label>
+              <input
+                id="documentNumber"
+                type="text"
+                placeholder="Enter document number"
+                defaultValue="1234563"
+                className="form-input"
+                required
+              />
+            </div>
+          </div>
+          
           <div className="form-group">
-            <label htmlFor="blockchain">Blockchain</label>
+            <label htmlFor="documentType">Document Type</label>
             <select
-              id="blockchain"
-              value={blockchain}
-              onChange={e => setBlockchain(e.target.value)}
+              id="documentType"
+              defaultValue="NATIONAL_ID"
               className="form-select"
               required
             >
-              <option value="ETHEREUM">Ethereum</option>
-              <option value="POLYGON">Polygon</option>
-              <option value="BASE">Base</option>
-              <option value="CELO">Celo</option>
+              <option value="NATIONAL_ID">National ID</option>
+              <option value="PASSPORT">Passport</option>
+              <option value="DRIVER_LICENSE">Driver's License</option>
             </select>
           </div>
           
-          <div className="form-group">
-            <label htmlFor="recipientAddress">Wallet Address</label>
-            <input
-              id="recipientAddress"
-              type="text"
-              placeholder="Enter recipient's wallet address"
-              value={recipientAddress}
-              onChange={e => setRecipientAddress(e.target.value)}
-              required
-              className="form-input"
-            />
-          </div>
+          {/* Wallet Address field removed as it's not needed for fiat payments */}
           
           {/* Recipient Information Section */}
           <h3 className="form-section-title">Recipient Information</h3>
@@ -344,6 +473,7 @@ function App() {
                     id="firstName"
                     type="text"
                     placeholder="Enter first name"
+                    defaultValue="Javier"
                     className="form-input"
                     required
                   />
@@ -354,6 +484,7 @@ function App() {
                     id="lastName"
                     type="text"
                     placeholder="Enter last name"
+                    defaultValue="Gomez"
                     className="form-input"
                     required
                   />
@@ -365,6 +496,7 @@ function App() {
                   id="individualEmail"
                   type="email"
                   placeholder="Enter email address"
+                  defaultValue="jgomez@gmail.com"
                   className="form-input"
                   required
                 />
@@ -374,6 +506,7 @@ function App() {
                 <input
                   id="dateOfBirth"
                   type="date"
+                  defaultValue="1980-02-22"
                   className="form-input"
                   required
                 />
@@ -525,7 +658,7 @@ function App() {
             <textarea
               id="payoutMemo"
               placeholder="Add a memo for this payout"
-              value={payoutMemo}
+              value={payoutMemo || 'December contract'}
               onChange={e => setPayoutMemo(e.target.value)}
               className="form-textarea"
             />
@@ -534,14 +667,19 @@ function App() {
           <div className="form-actions">
             <button 
               type="button" 
-              onClick={() => navigateTo('WELCOME')}
+              onClick={() => navigateTo(ViewTypes.WELCOME)}
               className="back-btn"
             >
               Back
             </button>
-            <button type="submit" className="submit-btn">Create Blockchain Payout</button>
+            <button type="submit" className="submit-btn">Create New Payment</button>
           </div>
         </form>
+        ) : (
+          <div className="no-account-selected">
+            <p>Please select or create an account to proceed with creating a payout.</p>
+          </div>
+        )}
         {payoutError && <p className="error-message">Error: {payoutError}</p>}
       </section>
     );
@@ -556,30 +694,77 @@ function App() {
       <div className="payout-details">
         <p><strong>Payout ID:</strong> {payoutResponse?.id}</p>
         <p><strong>Account ID:</strong> {payoutResponse?.sourceAccountId}</p>
+        <p><strong>Memo:</strong> {payoutResponse?.memo || 'No memo provided'}</p>
         <p><strong>Amount:</strong> {payoutResponse?.payouts?.[0]?.amount?.tokenAmount} {payoutResponse?.payouts?.[0]?.amount?.tokenSymbol}</p>
-        <p><strong>Status:</strong> {payoutResponse?.status}</p>
+        <p><strong>Status:</strong> <span className={`status ${payoutResponse?.status?.toLowerCase()}`}>{payoutResponse?.status}</span></p>
+        <p><strong>Created At:</strong> {new Date(payoutResponse?.createdAt || '').toLocaleString()}</p>
+        <p><strong>Updated At:</strong> {new Date(payoutResponse?.updatedAt || '').toLocaleString()}</p>
+        
+        {/* Show additional fiat payout details if available */}
+        {payoutResponse?.payouts?.[0]?.details?.type === 'fiat' && (
+          <div className="fiat-payout-details">
+            <h3>Fiat Payout Details</h3>
+            <p><strong>Fiat Rail Code:</strong> {payoutResponse?.payouts?.[0]?.details?.fiatAndRailCode}</p>
+            {payoutResponse?.payouts?.[0]?.details?.fiatAmount && (
+              <p>
+                <strong>Fiat Amount:</strong> 
+                {payoutResponse?.payouts?.[0]?.details?.fiatAmount.fiatAmount?.toLocaleString()} {payoutResponse?.payouts?.[0]?.details?.fiatAmount.fiatCurrencyCode}
+              </p>
+            )}
+            {payoutResponse?.payouts?.[0]?.details?.exchangeRate && (
+              <p><strong>Exchange Rate:</strong> {payoutResponse?.payouts?.[0]?.details?.exchangeRate}</p>
+            )}
+            {payoutResponse?.payouts?.[0]?.details?.transactionFee && (
+              <p>
+                <strong>Transaction Fee:</strong> 
+                {payoutResponse?.payouts?.[0]?.details?.transactionFee.tokenAmount} {payoutResponse?.payouts?.[0]?.details?.transactionFee.tokenSymbol}
+              </p>
+            )}
+            {payoutResponse?.payouts?.[0]?.details?.feeTotal && (
+              <p>
+                <strong>Total Fee:</strong> 
+                {payoutResponse?.payouts?.[0]?.details?.feeTotal.tokenAmount} {payoutResponse?.payouts?.[0]?.details?.feeTotal.tokenSymbol}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      
+      <div className="execution-status">
+        {executionStatus === 'executing' && (
+          <p className="status-message executing">Executing payout request...</p>
+        )}
+        {executionStatus === 'success' && (
+          <p className="status-message success">Payout successfully executed!</p>
+        )}
+        {executionStatus === 'error' && (
+          <p className="status-message error">Failed to execute payout.</p>
+        )}
       </div>
       
       <div className="payout-actions">
-        {payoutResponse?.status === 'PENDING' && (
+        {payoutResponse?.status === 'AWAITING_EXECUTION' && (
           <button 
             onClick={handleExecutePayout}
             className="action-btn primary"
+            disabled={executionStatus === 'executing'}
           >
-            Execute Payout
+            {executionStatus === 'executing' ? 'Executing...' : 'Execute Payout'}
           </button>
         )}
         
         <button 
           onClick={() => navigateTo('CREATE_BLOCKCHAIN_PAYOUT')}
           className="back-btn"
+          disabled={executionStatus === 'executing'}
         >
-          Back to Payout Form
+          Create New Payout
         </button>
         
         <button 
           onClick={() => navigateTo('WELCOME')}
           className="action-btn secondary"
+          disabled={executionStatus === 'executing'}
         >
           Back to Account
         </button>
@@ -597,7 +782,6 @@ function App() {
       </header>
       
       <main className="app-content">
-        {currentView === 'CREATE_ACCOUNT' && renderAccountCreation()}
         {currentView === 'WELCOME' && renderWelcome()}
         {currentView === 'CREATE_BLOCKCHAIN_PAYOUT' && renderBlockchainPayoutForm()}
         {currentView === 'VIEW_PAYOUT' && renderViewPayout()}
