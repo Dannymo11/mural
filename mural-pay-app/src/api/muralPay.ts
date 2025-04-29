@@ -27,7 +27,10 @@ async function request<T>({ method, path, body }: RequestOptions): Promise<T> {
   if (!res.ok) {
     const errorText = await res.text();
     console.error(`API Request Failed:\nURL: ${url}\nMethod: ${method}\nStatus: ${res.status}\nResponse: ${errorText}`);
+    throw new Error(`${method} ${path} failed: ${res.status} ${errorText}`);
   }
+  
+  // Only try to parse JSON if the response was OK
   return (await res.json()) as T;
 }
 
@@ -71,12 +74,103 @@ export function createAccount(input: { name: string }): Promise<Account> {
 
 // ── Payouts ────────────────────────────────────────────────────────────────────
 
+
+export interface amount {
+  tokenAmount: number;
+  tokenSymbol: string;
+} 
+
+export interface payoutDetails {
+  type: string;
+  bankName?: string;
+  bankAccountOwner?: string;
+  fiatAndRailDetails?: fiatAndRailDetails;
+  blockchainPayoutDetails?: blockchainPayoutDetails; // Keep this for backward compatibility
+}
+
+export interface fiatAndRailDetails {
+  type: string;
+  symbol: string;
+  accountType: string;
+  phoneNumber: string;
+  bankAccountNumber: string;
+  documentNumber: string;
+  documentType: string;
+}
+
+export interface blockchainPayoutDetails {
+  type: string;
+  walletDetails: walletDetails;
+}
+
+export interface walletDetails {
+  walletAddress: string;
+  blockchain: string; // Must be either ethereum, polygon, base, or celo
+}
+
+// Updated to match the API example
+export interface recipientInfo {
+  type: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  dateOfBirth?: string;
+  physicalAddress?: {
+    address1: string;
+    country: string;
+    state: string;
+    city: string;
+    zip: string;
+  };
+  // Keep these for backward compatibility
+  individualRecipientInfo?: individualRecipientInfo | null;
+  businessRecipientInfo?: businessRecipientInfo | null;
+}
+
+// Keep these for backward compatibility
+export interface individualRecipientInfo {
+  type: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  dateOfBirth: string | Date;
+  address?: {
+    street: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+}
+
+// Keep these for backward compatibility
+export interface businessRecipientInfo {
+  type: string;
+  name: string;
+  email: string;
+  address?: {
+    street: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+}
+
+export interface payouts {
+  amount: amount;
+  payoutDetails: payoutDetails;
+  recipientInfo: recipientInfo;
+}
+
 export interface PayoutRequest {
-  id:         string;
-  account_id: string;
-  amount:     number;
-  currency:   string;
-  status:     string;
+  id: string;
+  createdAt: string;
+  sourceAccountId: string;
+  memo: string;
+  amount: number;
+  status: string;
+  payouts: payouts[];
   // …other fields as returned by the API
 }
 
@@ -84,13 +178,11 @@ export interface PayoutRequest {
  * Create a Payout Request.
  */
 export function createPayoutRequest(input: {
-  account_id: string;
-  amount:     number;
-  currency:   string;
-  recipients: { amount: number; address: string }[];
+  sourceAccountId: string;
+  payouts: payouts[];
   memo?:      string;
 }): Promise<PayoutRequest> {
-  return request<PayoutRequest>({ method: 'POST', path: '/payouts/payout', body: input });
+  return request<PayoutRequest>({ method: 'POST', path: '/api/payouts/payout', body: input });
 }
 
 /**
@@ -100,26 +192,26 @@ export function searchPayoutRequests(filter: {
   organization_id: string;
   status?:         string[];
 }): Promise<PayoutRequest[]> {
-  return request<PayoutRequest[]>({ method: 'POST', path: '/payouts/search', body: filter });
+  return request<PayoutRequest[]>({ method: 'POST', path: '/api/payouts/search', body: filter });
 }
 
 /**
  * Get one Payout Request by ID.
  */
 export function getPayoutRequest(id: string): Promise<PayoutRequest> {
-  return request<PayoutRequest>({ method: 'GET', path: `/payouts/payout/${id}` });
+  return request<PayoutRequest>({ method: 'GET', path: `/api/payouts/payout/${id}` });
 }
 
 /**
  * Execute a Payout Request.
  */
 export function executePayoutRequest(id: string): Promise<PayoutRequest> {
-  return request<PayoutRequest>({ method: 'POST', path: `/payouts/payout/${id}/execute` });
+  return request<PayoutRequest>({ method: 'POST', path: `/api/payouts/payout/${id}/execute` });
 }
 
 /**
  * Cancel a Payout Request.
  */
 export function cancelPayoutRequest(id: string): Promise<void> {
-  return request<void>({ method: 'POST', path: `/payouts/payout/${id}/cancel` });
+  return request<void>({ method: 'POST', path: `/api/payouts/payout/${id}/cancel` });
 }
