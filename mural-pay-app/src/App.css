@@ -1,0 +1,247 @@
+:root {
+  --primary-color: #4a6cf7;
+  --secondary-color: #6c757d;
+  --success-color: #28a745;
+  --danger-color: #dc3545;
+  --light-color: #f8f9fa;
+  --dark-color: #343a40;
+  --border-color: #dee2e6;
+  --border-radius: 8px;
+  --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --transition: all 0.3s ease;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1.6;
+  color: var(--dark-color);
+  background-color: #f5f7fb;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.app-header {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: var(--box-shadow);
+}
+
+.app-content {
+  flex: 1;
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-footer {
+  background-color: var(--dark-color);
+  color: white;
+  text-align: center;
+  padding: 1rem;
+  margin-top: auto;
+}
+
+/* Forms */
+.form-container {
+  background-color: white;
+  padding: 2rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  margin-bottom: 2rem;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  transition: var(--transition);
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.2);
+}
+
+.form-textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.5rem;
+}
+
+/* Buttons */
+button {
+  cursor: pointer;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.submit-btn {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.submit-btn:hover {
+  background-color: #3a57d0;
+}
+
+.back-btn {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.back-btn:hover {
+  background-color: #5a6268;
+}
+
+.action-btn {
+  margin-right: 0.5rem;
+}
+
+.action-btn.primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.action-btn.primary:hover {
+  background-color: #3a57d0;
+}
+
+.action-btn.secondary {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.action-btn.secondary:hover {
+  background-color: #5a6268;
+}
+
+/* Account & Payout Views */
+.welcome-container,
+.payout-details-container {
+  background-color: white;
+  padding: 2rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+}
+
+.account-details,
+.payout-details {
+  text-align: left;
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  background-color: var(--light-color);
+  border-radius: var(--border-radius);
+}
+
+.account-details p,
+.payout-details p {
+  margin-bottom: 0.75rem;
+}
+
+.welcome-actions,
+.payout-actions {
+  margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.account-info {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem;
+  background-color: var(--light-color);
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+/* Alerts */
+.error-message {
+  color: var(--danger-color);
+  background-color: #f8d7da;
+  padding: 0.75rem;
+  margin-top: 1rem;
+  border-radius: var(--border-radius);
+  text-align: left;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .app-content {
+    padding: 1rem;
+  }
+  
+  .form-container,
+  .welcome-container,
+  .payout-details-container {
+    padding: 1.5rem;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  button {
+    width: 100%;
+  }
+  
+  .welcome-actions,
+  .payout-actions {
+    flex-direction: column;
+  }
+  
+  .action-btn {
+    margin-right: 0;
+    margin-bottom: 0.5rem;
+  }
+}
